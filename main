@@ -1,0 +1,910 @@
+-- buildblock() sourced directly from TCO Extras by 2areyoumental
+
+
+local gizmo = (function()
+    local gizmo = {}
+    local DEFAULT_THICKNESS = 0.1
+    local DEFAULT_SCALE     = 2
+    local DEFAULT_COLOR     = Color3.new(1, 1, 1)
+    local POINT_SCALE       = 5
+    local RunService        = game:GetService("RunService")
+    local Event             = RunService.RenderStepped
+
+    local Gizmos = Instance.new("Folder", workspace)
+    Gizmos.Name = "Gizmos"; Gizmos.Archivable = false
+
+    local thickness    = DEFAULT_THICKNESS
+    local globalScale  = DEFAULT_SCALE
+    local globalOrigin = CFrame.new(0,0,0)
+    local onRender     = nil
+    local cache, queue, textQueue = {}, {}, {}
+
+    local properties = {
+        Adornee = workspace, AlwaysOnTop = true,
+        AdornCullingMode = Enum.AdornCullingMode.Automatic,
+        Color3 = DEFAULT_COLOR, Visible = false, ZIndex = 1,
+    }
+
+    local function style(a) for k,v in pairs(properties) do a[k]=v end end
+    local function get(cls)
+        local c = cache[cls]; if not c then c={}; cache[cls]=c end
+        return table.remove(c) or Instance.new(cls, Gizmos)
+    end
+    local function release(i)
+        local c = cache[i.ClassName]; if not c then c={}; cache[i.ClassName]=c end
+        table.insert(c, i)
+    end
+
+    function gizmo.setColor(c)   properties.Color3 = BrickColor.new(c).Color end
+    function gizmo.setColor3(c)  properties.Color3 = c end
+    function gizmo.setOrigin(o)  globalOrigin = o end
+    function gizmo.setTransparency(t) properties.Transparency = t end
+    function gizmo.setLayer(z)   properties.ZIndex = z end
+    function gizmo.setScale(s)   globalScale = s end
+    function gizmo.reset()
+        properties.Transparency = 0; properties.ZIndex = 1
+        properties.Color3 = DEFAULT_COLOR
+        thickness = DEFAULT_THICKNESS; globalScale = DEFAULT_SCALE
+        globalOrigin = CFrame.new(0,0,0)
+    end
+
+    function gizmo.drawBox(cf, sz)
+        local a = get("BoxHandleAdornment"); style(a)
+        a.Size=sz; a.CFrame=globalOrigin*cf; table.insert(queue,a)
+    end
+
+    function gizmo.drawWireBox(cf, sz)
+        local x,y,z = sz.X/2, sz.Y/2, sz.Z/2
+        local lw  = thickness * globalScale
+        local sX  = Vector3.new(sz.X+lw, lw, lw)
+        local sY  = Vector3.new(lw, sz.Y+lw, lw)
+        local sZ  = Vector3.new(lw, lw, sz.Z+lw)
+        local rel = globalOrigin * cf
+        local function box(c2, s2) local a=get("BoxHandleAdornment"); style(a); a.Size=s2; a.CFrame=c2; table.insert(queue,a) end
+        box(rel*CFrame.new( 0, y, z),sX); box(rel*CFrame.new( 0,-y, z),sX)
+        box(rel*CFrame.new( 0, y,-z),sX); box(rel*CFrame.new( 0,-y,-z),sX)
+        box(rel*CFrame.new( x, 0, z),sY); box(rel*CFrame.new(-x, 0, z),sY)
+        box(rel*CFrame.new( x, 0,-z),sY); box(rel*CFrame.new(-x, 0,-z),sY)
+        box(rel*CFrame.new( x, y, 0),sZ); box(rel*CFrame.new(-x, y, 0),sZ)
+        box(rel*CFrame.new( x,-y, 0),sZ); box(rel*CFrame.new(-x,-y, 0),sZ)
+    end
+
+    function gizmo.drawPoint(pos)
+        local a=get("SphereHandleAdornment"); style(a)
+        a.Radius=globalScale*thickness*POINT_SCALE*0.5
+        a.CFrame=globalOrigin*CFrame.new(pos); table.insert(queue,a)
+    end
+
+    function gizmo.drawLine(from, to)
+        local d=(to-from).Magnitude; local a=get("CylinderHandleAdornment"); style(a)
+        a.Radius=globalScale*thickness*0.5; a.InnerRadius=0; a.Height=d
+        a.CFrame=globalOrigin*CFrame.lookAt(from,to)*CFrame.new(0,0,-d*0.5)
+        table.insert(queue,a)
+    end
+
+    function gizmo.drawArrow(from, to)
+        local ch = thickness*POINT_SCALE*globalScale
+        local d  = math.abs((to-from).Magnitude - ch)
+        local ori = globalOrigin * CFrame.lookAt(from, to)
+        local ln = get("CylinderHandleAdornment"); style(ln)
+        ln.Radius=globalScale*thickness*0.5; ln.InnerRadius=0; ln.Height=d
+        ln.CFrame=ori*CFrame.new(0,0,-d*0.5)
+        local cn = get("ConeHandleAdornment"); style(cn)
+        cn.Height=ch; cn.Radius=ch*0.5; cn.CFrame=ori*CFrame.new(0,0,-d)
+        table.insert(queue,ln); table.insert(queue,cn)
+    end
+
+    function gizmo.drawRay(from, dir) gizmo.drawArrow(from, from+dir) end
+
+    function gizmo.clear()
+        for _,a in ipairs(queue) do a.Visible=false; release(a) end; queue={}
+    end
+
+    local function enable()
+        onRender = Event:Connect(function()
+            local fr,tf = queue, textQueue; queue,textQueue = {},{}
+            for _,a in ipairs(fr)  do a.Visible=true  end
+            for _,a in ipairs(tf)  do a.Enabled=true  end
+            Event:Wait()
+            for _,a in ipairs(fr)  do a.Visible=false; release(a) end
+            for _,a in ipairs(tf)  do a.Enabled=false; release(a) end
+        end)
+    end
+    local function disable() if onRender then onRender:Disconnect(); onRender=nil end end
+
+    workspace:GetAttributeChangedSignal("GizmosEnabled"):Connect(function()
+        if workspace:GetAttribute("GizmosEnabled") then enable() else disable() end
+    end)
+    if workspace:GetAttribute("GizmosEnabled") then enable() end
+    return gizmo
+end)()
+
+workspace:SetAttribute("GizmosEnabled", true)
+
+
+local Players    = game:GetService("Players")
+local UIS        = game:GetService("UserInputService")
+local RS         = game:GetService("RunService")
+local StarterGui = game:GetService("StarterGui")
+local WS         = game:GetService("Workspace")
+
+local localplr   = Players.LocalPlayer
+local Mouse      = localplr:GetMouse()
+local Camera     = WS.CurrentCamera
+
+local mult         = 4
+local built        = false
+local stopped      = false
+local skipblock    = false
+local novel        = false
+local tp           = true
+local colorbool    = false
+local resizewait   = 0.4
+local defaultcolor = Color3.fromRGB(192, 192, 192)
+local oldprt       = nil
+local childcube    = nil
+local cubehistory  = {}
+local historynum   = 0
+local historymax   = 400
+local buildingtoxify = false
+local toxifybrick    = nil
+
+local normalids = {}
+normalids[Enum.NormalId.Right]  = {Vector3.new( 1,0,0),"X"}
+normalids[Enum.NormalId.Top]    = {Vector3.new( 0,1,0),"Y"}
+normalids[Enum.NormalId.Back]   = {Vector3.new( 0,0,1),"Z"}
+normalids[Enum.NormalId.Left]   = {Vector3.new(-1,0,0),"X"}
+normalids[Enum.NormalId.Bottom] = {Vector3.new( 0,-1,0),"Y"}
+normalids[Enum.NormalId.Front]  = {Vector3.new( 0,0,-1),"Z"}
+
+local function connectBrickFolder()
+    local folder = WS.Bricks:FindFirstChild(localplr.Name)
+    if folder then
+        folder.ChildAdded:Connect(function(child)
+            childcube   = child
+            historynum  = (historynum % historymax) + 1
+            if buildingtoxify then toxifybrick = child end
+            cubehistory[historynum] = child
+            built = true
+        end)
+    end
+end
+
+if WS:FindFirstChild("Bricks") then
+    connectBrickFolder()
+    WS.Bricks.ChildAdded:Connect(function(child)
+        if child.Name == localplr.Name then connectBrickFolder() end
+    end)
+end
+
+
+local function roundnum(num, m)
+    return math.round((num - 2) / m) * m + 2
+end
+local function round(pos, m)
+    m = m or mult
+    return Vector3.new(roundnum(pos.X,m), roundnum(pos.Y,m), roundnum(pos.Z,m))
+end
+local function snap(pos)
+    return pos
+end
+
+local function buildblock(pos, texture, color, bsize, bsizev3, premadebuild, origmaterial, sprays, anchored, collide)
+    task.wait(0.001)
+    if anchored == nil then anchored = true  end
+    if collide  == nil then collide  = true  end
+    local needsresize = false
+    local s, e = pcall(function()
+        local s, e = pcall(function()
+            localplr.Backpack.Build.Parent = localplr.Character
+        end)
+        local oo = false
+        local c  = 0
+        childcube = nil
+        if #cubehistory > 0 and oldprt then
+            local allooslol = {}
+            for i, childcube2 in pairs(cubehistory) do
+                if childcube2 == nil or childcube2.Parent == nil then
+                    cubehistory[i] = nil
+                    continue
+                elseif oldprt.Size == childcube2.Size then
+                    for ni, nv in pairs(normalids) do
+                        local npos = childcube2.Position + (nv[1] * childcube2.Size[nv[2]])
+                        if npos == oldprt.Position then
+                            oo = {ni, childcube2, childcube2.Position + (nv[1] * childcube2.Size[nv[2]] / 2)}
+                            table.insert(allooslol, {ni, childcube2, childcube2.Position + (nv[1] * childcube2.Size[nv[2]] / 2)})
+                        end
+                    end
+                end
+            end
+            if #allooslol > 1 and color and oo[2].Color ~= color then
+                for _, v in pairs(allooslol) do
+                    if v[2].Color == color then oo = v end
+                end
+            end
+            local origposs = pos
+            if oo and oo[2] ~= nil and oo[2].Parent ~= nil then
+                local args = { [1]=oo[2], [2]=oo[1], [3]=oo[3] or oldprt.Position, [4]="normal" }
+                built = false; childcube = nil; c = 0
+                repeat
+                    c = c + 1
+                    if localplr.Character:FindFirstChild("Build") then
+                        local ev = localplr.Character.Build
+                        local _ = (ev:FindFirstChild("origevent") and ev.origevent:Invoke(table.unpack(args)))
+                            or ev.Script.Event:FireServer(table.unpack(args))
+                    else
+                        pcall(function() localplr.Backpack.Build.Parent = localplr.Character end)
+                    end
+                    pcall(function()
+                        novel = true
+                        pos = oo[3] or pos
+                        if tp then localplr.Character.HumanoidRootPart.CFrame = CFrame.new(pos) end
+                    end)
+                    task.wait(0.05)
+                until (built == true and childcube) or oo[2]==nil or oo[2].Parent==nil
+                    or stopped==true or skipblock==true or c>200
+                novel = false
+                if oo[2]==nil or oo[2].Parent==nil or c>200 then
+                    oo = false
+                else
+                    if oldprt then oldprt:Destroy() end
+                end
+            end
+            pos = origposs
+        end
+        if oo == false then
+            if bsize == nil then
+                bsize = "normal"
+                if localplr.PlayerGui:FindFirstChild("Build") and localplr.PlayerGui.Build:FindFirstChild("Button") then
+                    bsize = localplr.PlayerGui.Build.Button.Text
+                end
+                if bsizev3 ~= nil and (bsizev3.X ~= mult or bsizev3.Y ~= mult or bsizev3.Z ~= mult) then
+                    bsize = "detailed"
+                elseif bsizev3 ~= nil and (bsizev3.X == mult and bsizev3.Y == mult and bsizev3.Z == mult) then
+                    bsize = "normal"
+                end
+                if bsizev3==nil and bsize~="detailed" and oldprt and oldprt.Position ~= round(pos) then
+                    bsize = "detailed"
+                    needsresize = true
+                    bsizev3 = Vector3.new(4,4,4)
+                    pos = Vector3.new((pos.X-(bsizev3.X/2))+.5, (pos.Y-(bsizev3.Y/2))+.5, (pos.Z-(bsizev3.Z/2))+.5)
+                end
+            end
+            local oldpos = pos
+            pos = snap(pos)
+            local args = { [1]=workspace.Terrain, [2]=Enum.NormalId.Top, [3]=pos, [4]=bsize or "normal" }
+            built = false
+            pcall(function()
+                local ev = localplr.Character.Build
+                local _ = (ev:FindFirstChild("origevent") and ev.origevent:Invoke(table.unpack(args)))
+                    or ev.Script.Event:FireServer(table.unpack(args))
+            end)
+            c = 0
+            repeat
+                c = c + 1
+                if localplr.Character and not localplr.Character:FindFirstChild("Build") and localplr.Backpack:FindFirstChild("Build") then
+                    localplr.Backpack.Build.Parent = localplr.Character
+                end
+                if localplr.Character:FindFirstChild("Build") then
+                    local ev = localplr.Character.Build
+                    local _ = (ev:FindFirstChild("origevent") and ev.origevent:Invoke(table.unpack(args)))
+                        or ev.Script.Event:FireServer(table.unpack(args))
+                end
+                pcall(function()
+                    novel = true
+                    if tp then
+                        localplr.Character.HumanoidRootPart.CFrame = CFrame.new(pos + Vector3.new(0,6,0))
+                    end
+                end)
+                task.wait(0.1)
+            until (built==true and childcube) or stopped==true or skipblock==true or c>200
+            novel = false; built = false; c = 0
+        end
+        if childcube and typeof(color)=="Color3"
+            and (color~=defaultcolor or (childcube.Color~=color or childcube.Material~=texture))
+            and (localplr.Backpack:FindFirstChild("Paint") or localplr.Character:FindFirstChild("Paint"))
+            and ((colorbool and premadebuild~=nil) or not colorbool) or texture then
+            local ppos = (childcube and childcube.Position + childcube.Size/2) or pos
+            local args = {
+                [1]=childcube, [2]=Enum.NormalId.Top, [3]=ppos,
+                [4]="color", [5]=color or nil, [6]="tiles", [7]=""
+            }
+            task.wait()
+            pcall(function() localplr.Backpack.Paint.Parent = localplr.Character end)
+            if texture ~= nil then
+                args[4] = color==nil and "material" or "both \u{1F91D}"
+                args[6] = texture
+            end
+            if not childcube then if oldprt then oldprt:Destroy() end; return end
+            c = 0
+            pcall(function()
+                repeat
+                    c = c + 1
+                    if localplr.Character and not localplr.Character:FindFirstChild("Paint") and localplr.Backpack:FindFirstChild("Paint") then
+                        localplr.Backpack.Paint.Parent = localplr.Character
+                    end
+                    if localplr.Character and localplr.Character:FindFirstChild("Paint") then
+                        local ev = localplr.Character.Paint
+                        local _ = (ev:FindFirstChild("origevent") and ev.origevent:Invoke(table.unpack(args)))
+                            or ev.Script.Event:FireServer(table.unpack(args))
+                    end
+                    pcall(function()
+                        novel = true
+                        if tp then localplr.Character.HumanoidRootPart.CFrame = CFrame.new(ppos+Vector3.new(0,6,0)) end
+                    end)
+                    task.wait(0.2)
+                until not childcube or not childcube.Parent
+                    or childcube.Color==color
+                    or (texture and childcube.Material==Enum.Material[origmaterial])
+                    or stopped==true or skipblock==true or c>2000
+                novel = false
+            end)
+        end
+        if childcube and localplr.Character and localplr.Character:FindFirstChild("Paint") and childcube.Anchored~=anchored then
+            local ppos = (childcube and childcube.Position+childcube.Size/2) or pos
+            local args = { [1]=childcube, [2]=Enum.NormalId.Top, [3]=ppos, [4]="material", [5]=nil, [6]="anchor", [7]="" }
+            c = 0
+            repeat
+                c = c + 1
+                if localplr.Character and not localplr.Character:FindFirstChild("Paint") and localplr.Backpack:FindFirstChild("Paint") then
+                    localplr.Backpack.Paint.Parent = localplr.Character
+                end
+                if localplr.Character and localplr.Character:FindFirstChild("Paint") and childcube and childcube.Anchored~=anchored then
+                    local ev = localplr.Character.Paint
+                    local _ = (ev:FindFirstChild("origevent") and ev.origevent:Invoke(table.unpack(args)))
+                        or ev.Script.Event:FireServer(table.unpack(args))
+                end
+                pcall(function()
+                    novel = true
+                    if tp then localplr.Character.HumanoidRootPart.CFrame = CFrame.new(ppos+Vector3.new(0,8,0)) end
+                end)
+                task.wait(1)
+            until not childcube or not childcube.Parent or childcube.Anchored==anchored
+                or stopped==true or skipblock==true or c>20
+            novel = false
+        end
+        if childcube and localplr.Character and localplr.Character:FindFirstChild("Paint") and childcube.CanCollide~=collide then
+            local ppos = (childcube and childcube.Position+childcube.Size/2) or pos
+            local args = { [1]=childcube, [2]=Enum.NormalId.Top, [3]=ppos, [4]="material", [5]=nil, [6]="collide", [7]="" }
+            c = 0
+            repeat
+                c = c + 1
+                if localplr.Character and not localplr.Character:FindFirstChild("Paint") and localplr.Backpack:FindFirstChild("Paint") then
+                    localplr.Backpack.Paint.Parent = localplr.Character
+                end
+                if localplr.Character and localplr.Character:FindFirstChild("Paint") and childcube and childcube.CanCollide~=collide then
+                    local ev = localplr.Character.Paint
+                    local _ = (ev:FindFirstChild("origevent") and ev.origevent:Invoke(table.unpack(args)))
+                        or ev.Script.Event:FireServer(table.unpack(args))
+                end
+                pcall(function()
+                    novel = true
+                    if tp then localplr.Character.HumanoidRootPart.CFrame = CFrame.new(ppos+Vector3.new(0,8,0)) end
+                end)
+                task.wait(1)
+            until not childcube or not childcube.Parent or childcube.CanCollide==collide
+                or stopped==true or skipblock==true or c>20
+            novel = false
+        end
+        if childcube and ((bsizev3~=nil and (bsizev3.X~=mult or bsizev3.Y~=mult or bsizev3.Z~=mult)) or needsresize==true)
+            and (localplr.Character:FindFirstChild("Shape") or localplr.Backpack:FindFirstChild("Shape")) then
+            if not localplr.Character:FindFirstChild("Shape") and localplr.Backpack:FindFirstChild("Shape") then
+                localplr.Backpack.Shape.Parent = localplr.Character
+            end
+            local args = { [1]=childcube, [2]=Enum.NormalId.Right, [3]="", [4]="" }
+            local function resize(normalId, axis)
+                args[2] = normalId; c = 0
+                if childcube and childcube.Size[axis] ~= bsizev3[axis] then
+                    repeat
+                        c = c + 1
+                        local ppos = (childcube and childcube.Position+childcube.Size/2) or pos
+                        args[4] = nil
+                        if childcube then
+                            args[3] = ppos
+                            if     childcube.Size[axis] > bsizev3[axis] then args[4]="decrease"
+                            elseif childcube.Size[axis] < bsizev3[axis] then args[4]="increase" end
+                        end
+                        if not localplr.Character:FindFirstChild("Shape") and localplr.Backpack:FindFirstChild("Shape") then
+                            localplr.Backpack.Shape.Parent = localplr.Character
+                        end
+                        if localplr.Character:FindFirstChild("Shape") then
+                            local ev = localplr.Character.Shape
+                            local _ = (ev:FindFirstChild("origevent") and ev.origevent:Invoke(table.unpack(args)))
+                                or ev.Script.Event:FireServer(table.unpack(args))
+                        end
+                        pcall(function()
+                            novel = true
+                            if tp then localplr.Character.HumanoidRootPart.CFrame = CFrame.new(args[3]+Vector3.new(0,6,0)) end
+                        end)
+                        task.wait(resizewait)
+                    until args[4]==nil
+                        or (args[4]=="decrease" and childcube and childcube.Size[axis]<=1)
+                        or (childcube and childcube.Size[axis]==bsizev3[axis])
+                        or stopped==true or skipblock==true
+                        or not childcube or not childcube.Parent
+                        or c > (bsizev3[axis]*3)/resizewait
+                    novel = false
+                end
+            end
+            resize(Enum.NormalId.Right, "X")
+            resize(Enum.NormalId.Top,   "Y")
+            resize(Enum.NormalId.Back,  "Z")
+        end
+        skipblock = false
+    end)
+    if oldprt then oldprt:Destroy() end
+    novel = false; childcube = nil
+    if not s then print(e) end
+end
+
+local TOOL_COLOR = Color3.fromRGB(56, 175, 255)
+
+local Tool = Instance.new("Tool")
+Tool.Name = "Clone"; Tool.RequiresHandle = true; Tool.CanBeDropped = false
+
+local Handle = Instance.new("Part")
+Handle.Name = "Handle"
+Handle.Shape = Enum.PartType.Cylinder
+Handle.Material = Enum.Material.Marble
+Handle.Color = TOOL_COLOR
+Handle.Size = Vector3.new(1.191, 0.682, 1.998)
+Handle.Orientation = Vector3.new(0, 90, 179.223)
+Handle.CanCollide = false; Handle.Massless = true
+Handle.Parent = Tool
+
+local tex = Instance.new("Texture")
+tex.Texture = "rbxassetid://16280131699"
+tex.Face = Enum.NormalId.Front
+tex.Parent = Handle
+
+Tool.Parent = localplr.Backpack
+
+local SNAP_GRID  = 4           -- changes with mode
+local BUILD_MODE = "normal"    -- "normal" | "detailed"
+local MIN_DRAG   = 6
+local GZ_LEN     = 5
+
+local CORNERS = {
+    Vector3.new( 1, 1, 1), Vector3.new(-1, 1, 1),
+    Vector3.new( 1,-1, 1), Vector3.new( 1, 1,-1),
+    Vector3.new(-1,-1, 1), Vector3.new(-1, 1,-1),
+    Vector3.new( 1,-1,-1), Vector3.new(-1,-1,-1),
+}
+
+local AXIS_CFG = {
+    X = { color = Color3.fromRGB(255, 60,  60),  dir = Vector3.new(1,0,0) },
+    Y = { color = Color3.fromRGB( 60, 220, 60),  dir = Vector3.new(0,1,0) },
+    Z = { color = Color3.fromRGB( 60, 110, 255), dir = Vector3.new(0,0,1) },
+}
+local AXES_ORDER = {"X","Y","Z"}
+
+local ModeGui = Instance.new("ScreenGui")
+ModeGui.Name = "CloneModeGui"; ModeGui.ResetOnSpawn = false
+ModeGui.Enabled = false
+ModeGui.Parent = game:GetService("CoreGui")
+
+-- Button (96×24, centred top, same as shovel's "dig" button)
+local ModeBtn = Instance.new("TextButton")
+ModeBtn.AnchorPoint            = Vector2.new(0.5, 0.5)
+ModeBtn.Position               = UDim2.new(0.5, 0, 0, 0)
+ModeBtn.Size                   = UDim2.new(0, 96, 0, 24)
+ModeBtn.BackgroundColor3       = TOOL_COLOR
+ModeBtn.BackgroundTransparency = 0.5
+ModeBtn.BorderSizePixel        = 0
+ModeBtn.Font                   = Enum.Font.FredokaOne
+ModeBtn.Text                   = "normal"
+ModeBtn.TextColor3             = TOOL_COLOR
+ModeBtn.TextScaled             = true
+ModeBtn.TextSize               = 14
+ModeBtn.TextStrokeColor3       = Color3.fromRGB(28, 87, 127)
+ModeBtn.TextStrokeTransparency = 0
+ModeBtn.TextWrapped            = true
+ModeBtn.Parent                 = ModeGui
+
+-- "clone mode" label (white, sits above button, same proportions as shovel's "shovel mode")
+local ModeLabel = Instance.new("TextLabel")
+ModeLabel.AnchorPoint            = Vector2.new(0, 1)
+ModeLabel.Position               = UDim2.new(0, 0, -0.1, 0)
+ModeLabel.Size                   = UDim2.new(1, 0, 0.75, 0)
+ModeLabel.BackgroundTransparency = 1
+ModeLabel.BorderSizePixel        = 0
+ModeLabel.Font                   = Enum.Font.FredokaOne
+ModeLabel.Text                   = "clone mode"
+ModeLabel.TextColor3             = Color3.fromRGB(255, 255, 255)
+ModeLabel.TextScaled             = true
+ModeLabel.TextSize               = 14
+ModeLabel.TextStrokeColor3       = Color3.fromRGB(128, 128, 128)
+ModeLabel.TextStrokeTransparency = 0
+ModeLabel.TextWrapped            = true
+ModeLabel.Parent                 = ModeBtn
+
+-- UIStroke (tool colour, 2px — same as shovel)
+local ModeStroke = Instance.new("UIStroke")
+ModeStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+ModeStroke.Color           = TOOL_COLOR
+ModeStroke.Thickness       = 2
+ModeStroke.Parent          = ModeBtn
+
+-- UICorner (0.125 scale radius — same as shovel)
+local ModeCorner = Instance.new("UICorner")
+ModeCorner.CornerRadius = UDim.new(0.125, 0)
+ModeCorner.Parent       = ModeBtn
+
+ModeBtn.MouseButton1Click:Connect(function()
+    if BUILD_MODE == "normal" then
+        BUILD_MODE = "detailed"
+        SNAP_GRID  = 1
+        ModeBtn.Text = "detailed"
+    else
+        BUILD_MODE = "normal"
+        SNAP_GRID  = 4
+        ModeBtn.Text = "normal"
+    end
+end)
+
+local S = {
+    active   = false,
+    phase    = "idle",
+    bricks   = {},
+    bCenter  = Vector3.zero,
+    bSize    = Vector3.zero,
+    rawOff   = Vector3.zero,
+    off      = Vector3.zero,
+    axis     = nil,
+    dragOrig = nil,
+    hovAxis  = nil,
+}
+local dragStart2D = Vector2.zero
+local dragEnd2D   = Vector2.zero
+
+
+local RectBorder = Drawing.new("Square")
+RectBorder.Visible=false; RectBorder.Filled=false; RectBorder.Transparency=1
+RectBorder.Color=TOOL_COLOR; RectBorder.Thickness=1.5
+
+local RectFill = Drawing.new("Square")
+RectFill.Visible=false; RectFill.Filled=true; RectFill.Transparency=0.18
+RectFill.Color=TOOL_COLOR
+
+local function setRect(a,b)
+    local tl = Vector2.new(math.min(a.X,b.X), math.min(a.Y,b.Y))
+    local sz = Vector2.new(math.abs(b.X-a.X), math.abs(b.Y-a.Y))
+    RectBorder.Position=tl; RectBorder.Size=sz
+    RectFill.Position=tl;   RectFill.Size=sz
+end
+local function showRect(v) RectBorder.Visible=v; RectFill.Visible=v end
+
+local HitFolder = Instance.new("Folder")
+HitFolder.Name="_CloneGizHit"; HitFolder.Parent=WS
+
+local HitParts = {}
+for _, ax in ipairs(AXES_ORDER) do
+    local p = Instance.new("Part")
+    p.Name="GZHit_"..ax; p.Anchored=true; p.CanCollide=false
+    p.CanQuery=false; p.CastShadow=false; p.Transparency=1
+    p.Size = Vector3.new(GZ_LEN, 1.5, 1.5); p.Parent=HitFolder
+    HitParts[ax] = p
+end
+
+local function placeHitParts(center)
+    for _, ax in ipairs(AXES_ORDER) do
+        local d = AXIS_CFG[ax].dir
+        HitParts[ax].CFrame = CFrame.lookAt(center, center+d) * CFrame.new(0,0,-GZ_LEN/2)
+    end
+end
+local function setHitPartsActive(on)
+    for _, p in pairs(HitParts) do p.CanQuery = on end
+end
+local function getHoveredAxis()
+    local ray = Camera:ViewportPointToRay(Mouse.X, Mouse.Y)
+    local rp = RaycastParams.new()
+    rp.FilterType = Enum.RaycastFilterType.Include
+    rp.FilterDescendantsInstances = { HitFolder }
+    local res = WS:Raycast(ray.Origin, ray.Direction*800, rp)
+    if res then return res.Instance.Name:match("_(%a)$") end
+    return nil
+end
+
+local PrevFolder = Instance.new("Folder")
+PrevFolder.Name="_ClonePreview"; PrevFolder.Parent=WS
+
+local function clearPreview() PrevFolder:ClearAllChildren() end
+local function spawnPreview()
+    clearPreview()
+    for _, brick in ipairs(S.bricks) do
+        local p = Instance.new("Part")
+        p.Anchored=true; p.CanCollide=false; p.CanQuery=false; p.CastShadow=false
+        p.Color=brick.Color; p.Material=brick.Material; p.Size=brick.Size
+        p.CFrame=brick.CFrame+S.off; p.Transparency=0.5; p.Parent=PrevFolder
+    end
+end
+local function refreshPreview()
+    local kids = PrevFolder:GetChildren()
+    for i, p in ipairs(kids) do
+        if S.bricks[i] then p.CFrame = S.bricks[i].CFrame + S.off end
+    end
+end
+
+local trackedBricks = {}
+
+local function trackFolder(folder)
+    for _, brick in ipairs(folder:GetChildren()) do
+        if brick:IsA("BasePart") and brick.Name == "Brick" then
+            trackedBricks[brick] = true
+        end
+    end
+    folder.ChildAdded:Connect(function(brick)
+        if brick:IsA("BasePart") and brick.Name == "Brick" then
+            trackedBricks[brick] = true
+        end
+    end)
+    folder.ChildRemoved:Connect(function(brick)
+        trackedBricks[brick] = nil
+    end)
+end
+
+local function getAllBricks()
+    local t = {}
+    for brick in pairs(trackedBricks) do
+        if brick and brick.Parent then
+            table.insert(t, brick)
+        else
+            trackedBricks[brick] = nil
+        end
+    end
+    return t
+end
+
+local BrickRoot = WS:WaitForChild("Bricks")
+for _, folder in ipairs(BrickRoot:GetChildren()) do
+    if folder:IsA("Model") then trackFolder(folder) end
+end
+BrickRoot.ChildAdded:Connect(function(folder)
+    if folder:IsA("Model") then trackFolder(folder) end
+end)
+
+local function brickInScreenRect(brick, min2, max2)
+    local cf = brick.CFrame; local hs = brick.Size/2
+    for _, c in ipairs(CORNERS) do
+        local vp = Camera:WorldToViewportPoint((cf*CFrame.new(hs*c)).Position)
+        if vp.Z>0 and vp.X>=min2.X and vp.X<=max2.X and vp.Y>=min2.Y and vp.Y<=max2.Y then
+            return true
+        end
+    end
+    return false
+end
+
+local function calcBounds(bricks)
+    local INF = math.huge
+    local mn = Vector3.new(INF,INF,INF); local mx = Vector3.new(-INF,-INF,-INF)
+    for _, brick in ipairs(bricks) do
+        local cf = brick.CFrame; local hs = brick.Size/2
+        for _, c in ipairs(CORNERS) do
+            local wp = (cf*CFrame.new(hs*c)).Position
+            mn = Vector3.new(math.min(mn.X,wp.X), math.min(mn.Y,wp.Y), math.min(mn.Z,wp.Z))
+            mx = Vector3.new(math.max(mx.X,wp.X), math.max(mx.Y,wp.Y), math.max(mx.Z,wp.Z))
+        end
+    end
+    return (mn+mx)/2, mx-mn
+end
+
+local function snapV3(v)
+    return Vector3.new(
+        math.round(v.X/SNAP_GRID)*SNAP_GRID,
+        math.round(v.Y/SNAP_GRID)*SNAP_GRID,
+        math.round(v.Z/SNAP_GRID)*SNAP_GRID
+    )
+end
+
+local function bestPlaneNormal(ax)
+    local fwd = Camera.CFrame.LookVector
+    if ax=="X" then
+        local ny,nz = Vector3.new(0,1,0), Vector3.new(0,0,1)
+        return math.abs(fwd:Dot(ny))>=math.abs(fwd:Dot(nz)) and ny or nz
+    elseif ax=="Y" then
+        local nx,nz = Vector3.new(1,0,0), Vector3.new(0,0,1)
+        return math.abs(fwd:Dot(nx))>=math.abs(fwd:Dot(nz)) and nx or nz
+    else
+        local nx,ny = Vector3.new(1,0,0), Vector3.new(0,1,0)
+        return math.abs(fwd:Dot(nx))>=math.abs(fwd:Dot(ny)) and nx or ny
+    end
+end
+
+local function rayPlane(ro, rd, pp, pn)
+    local denom = rd:Dot(pn)
+    if math.abs(denom)<1e-6 then return nil end
+    local t = (pp-ro):Dot(pn)/denom
+    return t>0 and (ro+rd*t) or nil
+end
+
+local function notify(title, text, dur)
+    StarterGui:SetCore("SendNotification", { Title=title, Text=text, Duration=dur or 3 })
+end
+
+local MAT_STR = {
+    [Enum.Material.SmoothPlastic]="smooth",  [Enum.Material.Plastic]     ="plastic",
+    [Enum.Material.CeramicTiles] ="tiles",   [Enum.Material.Brick]       ="bricks",
+    [Enum.Material.WoodPlanks]   ="planks",  [Enum.Material.Ice]         ="ice",
+    [Enum.Material.Grass]        ="grass",   [Enum.Material.Sand]        ="sand",
+    [Enum.Material.Snow]         ="snow",    [Enum.Material.Glass]       ="glass",
+    [Enum.Material.Wood]         ="wood",    [Enum.Material.Slate]       ="stone",
+    [Enum.Material.Pebble]       ="pebble",  [Enum.Material.Marble]      ="marble",
+    [Enum.Material.Granite]      ="granite", [Enum.Material.DiamondPlate]="steel",
+    [Enum.Material.Metal]        ="metal",   [Enum.Material.Asphalt]     ="asphalt",
+    [Enum.Material.Concrete]     ="concrete",[Enum.Material.Pavement]    ="pavement",
+    [Enum.Material.Neon]         ="neon",
+}
+
+local function serializeBrick(brick, offset)
+    local pos  = brick.Position + offset
+    local size = brick.Size
+    return {
+        p  = { (pos.X-size.X/2)+0.5, (pos.Y-size.Y/2)+0.5, (pos.Z-size.Z/2)+0.5 },
+        s  = { size.X, size.Y, size.Z },
+        c  = { math.round(brick.Color.R*255), math.round(brick.Color.G*255), math.round(brick.Color.B*255) },
+        m  = MAT_STR[brick.Material] or "smooth",
+        o  = brick.Material.Name,
+        a  = brick.Anchored,
+        cc = brick.CanCollide,
+        sp = {},
+    }
+end
+
+local function resetTool()
+    S.phase="idle"; S.bricks={}; S.rawOff=Vector3.zero; S.off=Vector3.zero
+    S.axis=nil; S.dragOrig=nil; S.hovAxis=nil
+    showRect(false); setHitPartsActive(false); clearPreview()
+end
+
+local function confirmPlace()
+    if S.phase~="selected" and S.phase~="dragging" then return end
+    local count = 0
+    for _, brick in ipairs(S.bricks) do
+        if stopped then break end
+        local d = serializeBrick(brick, S.off)
+        local ghost = Instance.new("Part")
+        ghost.Anchored   = true; ghost.CanCollide = false; ghost.CanQuery = false
+        ghost.CastShadow = false; ghost.Transparency = 1
+        ghost.Color      = Color3.fromRGB(d.c[1], d.c[2], d.c[3])
+        ghost.Material   = Enum.Material[d.o] or Enum.Material.SmoothPlastic
+        local sz = d.s and Vector3.new(d.s[1],d.s[2],d.s[3]) or Vector3.new(mult,mult,mult)
+        ghost.Size = sz
+        ghost.Position = Vector3.new(
+            d.p[1] + (sz.X/2) - 0.5,
+            d.p[2] + (sz.Y/2) - 0.5,
+            d.p[3] + (sz.Z/2) - 0.5
+        )
+        ghost.Parent = WS
+        oldprt = ghost
+
+        buildblock(
+            Vector3.new(d.p[1], d.p[2], d.p[3]),
+            d.m,
+            Color3.fromRGB(d.c[1],d.c[2],d.c[3]),
+            nil,
+            sz,
+            true,
+            d.o,
+            d.sp,
+            d.a,
+            d.cc
+        )
+        count += 1
+    end
+    resetTool()
+    notify("Clone Tool", count.." brick(s) placed! ✔", 2)
+end
+
+Tool.Equipped:Connect(function()
+    S.active = true
+    ModeGui.Enabled = true
+    notify("Clone Tool", "Drag to select  •  Arrows to move  •  Q to place  •  X to cancel", 5)
+end)
+Tool.Unequipped:Connect(function()
+    S.active = false
+    ModeGui.Enabled = false
+    resetTool()
+end)
+
+UIS.InputBegan:Connect(function(inp, gp)
+    if gp or not S.active then return end
+    if inp.KeyCode==Enum.KeyCode.Q      then confirmPlace(); return end
+    if inp.KeyCode==Enum.KeyCode.Escape then resetTool();    return end
+    if inp.KeyCode==Enum.KeyCode.Z      then skipblock = true; return end
+    if inp.KeyCode==Enum.KeyCode.X      then stopped = true; resetTool(); return end
+    if inp.UserInputType~=Enum.UserInputType.MouseButton1 then return end
+
+    local mx, my = Mouse.X, Mouse.Y
+    if S.phase=="selected" then
+        local ax = getHoveredAxis()
+        if ax then
+            local ray = Camera:ViewportPointToRay(mx, my)
+            local pn  = bestPlaneNormal(ax)
+            local hit = rayPlane(ray.Origin, ray.Direction*800, S.bCenter+S.off, pn)
+            if hit then
+                S.phase="dragging"; S.axis=ax; S.dragOrig=hit; S.rawOff=S.off
+            end
+            return
+        end
+    end
+    if S.phase=="idle" or S.phase=="selected" then
+        resetTool()
+        S.phase="selecting"
+        dragStart2D=Vector2.new(mx,my); dragEnd2D=dragStart2D
+        showRect(true); setRect(dragStart2D, dragEnd2D)
+    end
+end)
+
+UIS.InputChanged:Connect(function(inp, gp)
+    if gp or not S.active then return end
+    if inp.UserInputType~=Enum.UserInputType.MouseMovement then return end
+    local mx, my = Mouse.X, Mouse.Y
+    if S.phase=="selecting" then
+        dragEnd2D=Vector2.new(mx,my); setRect(dragStart2D, dragEnd2D)
+    elseif S.phase=="dragging" and S.axis and S.dragOrig then
+        local ray = Camera:ViewportPointToRay(mx, my)
+        local pn  = bestPlaneNormal(S.axis)
+        local hit = rayPlane(ray.Origin, ray.Direction*800, S.bCenter, pn)
+        if hit then
+            local delta = hit - S.dragOrig
+            local dir   = AXIS_CFG[S.axis].dir
+            S.rawOff   = S.rawOff + dir*delta:Dot(dir)
+            S.off      = snapV3(S.rawOff)
+            S.dragOrig = hit
+            refreshPreview()
+            placeHitParts(S.bCenter + S.off)
+        end
+    end
+end)
+
+UIS.InputEnded:Connect(function(inp, gp)
+    if gp or not S.active then return end
+    if inp.UserInputType~=Enum.UserInputType.MouseButton1 then return end
+
+    if S.phase=="selecting" then
+        showRect(false)
+        if (dragEnd2D-dragStart2D).Magnitude < MIN_DRAG then S.phase="idle"; return end
+        local min2 = Vector2.new(math.min(dragStart2D.X,dragEnd2D.X), math.min(dragStart2D.Y,dragEnd2D.Y))
+        local max2 = Vector2.new(math.max(dragStart2D.X,dragEnd2D.X), math.max(dragStart2D.Y,dragEnd2D.Y))
+        for _, brick in ipairs(getAllBricks()) do
+            if brickInScreenRect(brick, min2, max2) then table.insert(S.bricks, brick) end
+        end
+        if #S.bricks > 0 then
+            S.phase = "selected"
+            S.bCenter, S.bSize = calcBounds(S.bricks)
+            spawnPreview(); placeHitParts(S.bCenter); setHitPartsActive(true)
+            notify("Clone Tool", #S.bricks.." brick(s) selected  •  drag arrows  •  Q to place", 3)
+        else
+            S.phase = "idle"
+            notify("Clone Tool", "No bricks in that area.", 2)
+        end
+    elseif S.phase=="dragging" then
+        S.phase="selected"; S.axis=nil; S.dragOrig=nil
+    end
+end)
+
+RS.RenderStepped:Connect(function()
+    if not S.active then return end
+    S.hovAxis = (S.phase=="selected") and getHoveredAxis()
+              or (S.phase=="dragging") and S.axis
+              or nil
+    if S.phase~="selected" and S.phase~="dragging" then return end
+
+    local center = S.bCenter + S.off
+
+    gizmo.reset()
+    gizmo.setColor3(TOOL_COLOR)
+    gizmo.setTransparency(0.1)
+    gizmo.setScale(1)
+    gizmo.drawWireBox(CFrame.new(center), S.bSize + Vector3.new(0.3,0.3,0.3))
+
+    for _, ax in ipairs(AXES_ORDER) do
+        local cfg      = AXIS_CFG[ax]
+        local isActive = (ax==S.hovAxis)
+        gizmo.reset()
+        gizmo.setColor3(cfg.color)
+        gizmo.setTransparency(isActive and 0 or 0.3)
+        gizmo.setScale(isActive and 2.2 or 1)
+        gizmo.drawArrow(center, center + cfg.dir*GZ_LEN)
+    end
+end)
