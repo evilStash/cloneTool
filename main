@@ -1,3 +1,5 @@
+-- buildblock() sourced directly from TCO Extras by 2areyoumental
+
 local gizmo = (function()
     local gizmo = {}
     local DEFAULT_THICKNESS = 0.1
