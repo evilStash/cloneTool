@@ -1,6 +1,3 @@
--- buildblock() sourced directly from TCO Extras by 2areyoumental
-
-
 local gizmo = (function()
     local gizmo = {}
     local DEFAULT_THICKNESS = 0.1
@@ -13,6 +10,17 @@ local gizmo = (function()
     local Gizmos = Instance.new("Folder", workspace)
     Gizmos.Name = "Gizmos"; Gizmos.Archivable = false
 
+    local GizmoAnchor = Instance.new("Part")
+    GizmoAnchor.Name        = "GizmoAnchor"
+    GizmoAnchor.Anchored    = true
+    GizmoAnchor.CanCollide  = false
+    GizmoAnchor.CanQuery    = false
+    GizmoAnchor.CastShadow  = false
+    GizmoAnchor.Transparency = 1
+    GizmoAnchor.Size        = Vector3.new(0.1, 0.1, 0.1)
+    GizmoAnchor.CFrame      = CFrame.new(0, 0, 0)
+    GizmoAnchor.Parent      = Gizmos
+
     local thickness    = DEFAULT_THICKNESS
     local globalScale  = DEFAULT_SCALE
     local globalOrigin = CFrame.new(0,0,0)
@@ -20,7 +28,7 @@ local gizmo = (function()
     local cache, queue, textQueue = {}, {}, {}
 
     local properties = {
-        Adornee = workspace, AlwaysOnTop = true,
+        Adornee = GizmoAnchor, AlwaysOnTop = true,
         AdornCullingMode = Enum.AdornCullingMode.Automatic,
         Color3 = DEFAULT_COLOR, Visible = false, ZIndex = 1,
     }
@@ -121,11 +129,11 @@ end)()
 
 workspace:SetAttribute("GizmosEnabled", true)
 
-
 local Players    = game:GetService("Players")
 local UIS        = game:GetService("UserInputService")
 local RS         = game:GetService("RunService")
 local StarterGui = game:GetService("StarterGui")
+local TCS        = game:GetService("TextChatService")
 local WS         = game:GetService("Workspace")
 
 local localplr   = Players.LocalPlayer
@@ -160,6 +168,12 @@ normalids[Enum.NormalId.Front]  = {Vector3.new( 0,0,-1),"Z"}
 local function connectBrickFolder()
     local folder = WS.Bricks:FindFirstChild(localplr.Name)
     if folder then
+        for _, child in ipairs(folder:GetChildren()) do
+            if child:IsA("BasePart") then
+                historynum  = (historynum % historymax) + 1
+                cubehistory[historynum] = child
+            end
+        end
         folder.ChildAdded:Connect(function(child)
             childcube   = child
             historynum  = (historynum % historymax) + 1
@@ -176,7 +190,6 @@ if WS:FindFirstChild("Bricks") then
         if child.Name == localplr.Name then connectBrickFolder() end
     end)
 end
-
 
 local function roundnum(num, m)
     return math.round((num - 2) / m) * m + 2
@@ -441,28 +454,36 @@ local TOOL_COLOR = Color3.fromRGB(56, 175, 255)
 
 local Tool = Instance.new("Tool")
 Tool.Name = "Clone"; Tool.RequiresHandle = true; Tool.CanBeDropped = false
+Tool.GripPos = Vector3.new(0, 0, 0.61)
 
 local Handle = Instance.new("Part")
-Handle.Name = "Handle"
-Handle.Shape = Enum.PartType.Cylinder
-Handle.Material = Enum.Material.Marble
-Handle.Color = TOOL_COLOR
-Handle.Size = Vector3.new(1.191, 0.682, 1.998)
-Handle.Orientation = Vector3.new(0, 90, 179.223)
+Handle.Name       = "Handle"
+Handle.Material   = Enum.Material.Plastic
+Handle.Color      = Color3.fromRGB(33, 134, 193)
+Handle.Size       = Vector3.new(0.8, 0.8, 0.4)
 Handle.CanCollide = false; Handle.Massless = true
-Handle.Parent = Tool
+Handle.Parent     = Tool
+Handle.Transparency = 0.5
 
-local tex = Instance.new("Texture")
-tex.Texture = "rbxassetid://16280131699"
-tex.Face = Enum.NormalId.Front
-tex.Parent = Handle
+local Part2 = Instance.new("Part")
+Part2.Name       = "Part"
+Part2.Material   = Enum.Material.Plastic
+Part2.Color      = Color3.fromRGB(45, 142, 207)
+Part2.Size       = Vector3.new(0.8, 0.8, 0.4)
+Part2.CFrame     = Handle.CFrame * CFrame.new(0, 0, 0.4)
+Part2.CanCollide = false; Part2.Massless = true
+Part2.Parent     = Tool
+
+local Weld = Instance.new("WeldConstraint")
+Weld.Part0 = Handle; Weld.Part1 = Part2; Weld.Parent = Handle
 
 Tool.Parent = localplr.Backpack
 
-local SNAP_GRID  = 4           -- changes with mode
-local BUILD_MODE = "normal"    -- "normal" | "detailed"
+local SNAP_GRID  = 4
+local BUILD_MODE = "normal"
 local MIN_DRAG   = 6
 local GZ_LEN     = 5
+local overlapFlashUntil = 0
 
 local CORNERS = {
     Vector3.new( 1, 1, 1), Vector3.new(-1, 1, 1),
@@ -478,12 +499,58 @@ local AXIS_CFG = {
 }
 local AXES_ORDER = {"X","Y","Z"}
 
+local function makeLabel(parent, text, anchorX, posX, posY, sizeX, sizeY, textColor, strokeColor)
+    local l = Instance.new("TextLabel")
+    l.AnchorPoint            = Vector2.new(anchorX, 0.5)
+    l.Position               = UDim2.new(posX, 0, posY, 0)
+    l.Size                   = UDim2.new(sizeX, 0, sizeY, 0)
+    l.BackgroundTransparency = 1
+    l.BorderSizePixel        = 0
+    l.Font                   = Enum.Font.FredokaOne
+    l.Text                   = text
+    l.TextColor3             = textColor or Color3.fromRGB(255,255,255)
+    l.TextScaled             = true
+    l.TextStrokeColor3       = strokeColor or Color3.fromRGB(128,128,128)
+    l.TextStrokeTransparency = 0
+    l.TextWrapped            = true
+    l.Parent                 = parent
+    return l
+end
+
+local function makeTextBox(parent, placeholderText, anchorX, posX, posY, sizeX, sizeY)
+    local tb = Instance.new("TextBox")
+    tb.AnchorPoint            = Vector2.new(anchorX, 0.5)
+    tb.Position               = UDim2.new(posX, 0, posY, 0)
+    tb.Size                   = UDim2.new(sizeX, 0, sizeY, 0)
+    tb.BackgroundColor3       = Color3.fromRGB(20, 20, 20)
+    tb.BackgroundTransparency = 0.4
+    tb.BorderSizePixel        = 0
+    tb.Font                   = Enum.Font.FredokaOne
+    tb.PlaceholderText        = placeholderText
+    tb.PlaceholderColor3      = Color3.fromRGB(180,180,180)
+    tb.Text                   = ""
+    tb.TextColor3             = Color3.fromRGB(255,255,255)
+    tb.TextScaled             = true
+    tb.TextStrokeColor3       = Color3.fromRGB(0,0,0)
+    tb.TextStrokeTransparency = 0.5
+    tb.ClearTextOnFocus       = true
+    tb.Parent                 = parent
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0.2, 0)
+    corner.Parent = tb
+    local stroke = Instance.new("UIStroke")
+    stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    stroke.Color           = TOOL_COLOR
+    stroke.Thickness       = 1.5
+    stroke.Parent          = tb
+    return tb
+end
+
 local ModeGui = Instance.new("ScreenGui")
 ModeGui.Name = "CloneModeGui"; ModeGui.ResetOnSpawn = false
 ModeGui.Enabled = false
 ModeGui.Parent = game:GetService("CoreGui")
 
--- Button (96×24, centred top, same as shovel's "dig" button)
 local ModeBtn = Instance.new("TextButton")
 ModeBtn.AnchorPoint            = Vector2.new(0.5, 0.5)
 ModeBtn.Position               = UDim2.new(0.5, 0, 0, 0)
@@ -501,7 +568,6 @@ ModeBtn.TextStrokeTransparency = 0
 ModeBtn.TextWrapped            = true
 ModeBtn.Parent                 = ModeGui
 
--- "clone mode" label (white, sits above button, same proportions as shovel's "shovel mode")
 local ModeLabel = Instance.new("TextLabel")
 ModeLabel.AnchorPoint            = Vector2.new(0, 1)
 ModeLabel.Position               = UDim2.new(0, 0, -0.1, 0)
@@ -518,28 +584,79 @@ ModeLabel.TextStrokeTransparency = 0
 ModeLabel.TextWrapped            = true
 ModeLabel.Parent                 = ModeBtn
 
--- UIStroke (tool colour, 2px — same as shovel)
 local ModeStroke = Instance.new("UIStroke")
 ModeStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 ModeStroke.Color           = TOOL_COLOR
 ModeStroke.Thickness       = 2
 ModeStroke.Parent          = ModeBtn
 
--- UICorner (0.125 scale radius — same as shovel)
 local ModeCorner = Instance.new("UICorner")
 ModeCorner.CornerRadius = UDim.new(0.125, 0)
 ModeCorner.Parent       = ModeBtn
 
 ModeBtn.MouseButton1Click:Connect(function()
     if BUILD_MODE == "normal" then
-        BUILD_MODE = "detailed"
-        SNAP_GRID  = 1
-        ModeBtn.Text = "detailed"
+        BUILD_MODE = "detailed"; SNAP_GRID = 1; ModeBtn.Text = "detailed"
     else
-        BUILD_MODE = "normal"
-        SNAP_GRID  = 4
-        ModeBtn.Text = "normal"
+        BUILD_MODE = "normal"; SNAP_GRID = 4; ModeBtn.Text = "normal"
     end
+end)
+
+local SettingsGui = Instance.new("ScreenGui")
+SettingsGui.Name         = "CloneSettingsGui"
+SettingsGui.ResetOnSpawn = false
+SettingsGui.Enabled      = false
+SettingsGui.Parent       = game:GetService("CoreGui")
+
+local RWFrame = Instance.new("Frame")
+RWFrame.AnchorPoint            = Vector2.new(0.5, 1)
+RWFrame.Position               = UDim2.new(0.45, 0, 0.92, 0)
+RWFrame.Size                   = UDim2.new(0, 140, 0, 80)
+RWFrame.BackgroundTransparency = 1
+RWFrame.Parent                 = SettingsGui
+
+local RWTitle = makeLabel(RWFrame, "resizewait", 0.5, 0.5, 0.15, 1, 0.28,
+    TOOL_COLOR, Color3.fromRGB(28, 87, 127))
+
+local RWBox = makeTextBox(RWFrame, tostring(resizewait), 0.5, 0.5, 0.52, 0.85, 0.32)
+
+local RWCurrent = makeLabel(RWFrame, "currently: "..tostring(resizewait), 0.5, 0.5, 0.85, 1, 0.22,
+    Color3.fromRGB(200,200,200), Color3.fromRGB(80,80,80))
+
+local BHFrame = Instance.new("Frame")
+BHFrame.AnchorPoint            = Vector2.new(0.5, 1)
+BHFrame.Position               = UDim2.new(0.55, 0, 0.92, 0)
+BHFrame.Size                   = UDim2.new(0, 140, 0, 80)
+BHFrame.BackgroundTransparency = 1
+BHFrame.Parent                 = SettingsGui
+
+local BHTitle = makeLabel(BHFrame, "brickhistory", 0.5, 0.5, 0.15, 1, 0.28,
+    TOOL_COLOR, Color3.fromRGB(28, 87, 127))
+
+local BHBox = makeTextBox(BHFrame, tostring(historymax), 0.5, 0.5, 0.52, 0.85, 0.32)
+
+local BHCurrent = makeLabel(BHFrame, "currently: "..tostring(historymax), 0.5, 0.5, 0.85, 1, 0.22,
+    Color3.fromRGB(200,200,200), Color3.fromRGB(80,80,80))
+
+RWBox.FocusLost:Connect(function()
+    local n = tonumber(RWBox.Text)
+    if n then
+        resizewait = math.max(0.05, n)
+        RWCurrent.Text = "currently: "..tostring(resizewait)
+    end
+    RWBox.Text = ""
+end)
+
+BHBox.FocusLost:Connect(function()
+    local n = tonumber(BHBox.Text)
+    if n then
+        historymax = math.max(1, math.abs(math.floor(n)))
+        for i in pairs(cubehistory) do
+            if i > historymax then cubehistory[i] = nil end
+        end
+        BHCurrent.Text = "currently: "..tostring(historymax)
+    end
+    BHBox.Text = ""
 end)
 
 local S = {
@@ -556,7 +673,6 @@ local S = {
 }
 local dragStart2D = Vector2.zero
 local dragEnd2D   = Vector2.zero
-
 
 local RectBorder = Drawing.new("Square")
 RectBorder.Visible=false; RectBorder.Filled=false; RectBorder.Transparency=1
@@ -657,10 +773,10 @@ end
 
 local BrickRoot = WS:WaitForChild("Bricks")
 for _, folder in ipairs(BrickRoot:GetChildren()) do
-    if folder:IsA("Model") then trackFolder(folder) end
+    trackFolder(folder)
 end
 BrickRoot.ChildAdded:Connect(function(folder)
-    if folder:IsA("Model") then trackFolder(folder) end
+    trackFolder(folder)
 end)
 
 local function brickInScreenRect(brick, min2, max2)
@@ -721,6 +837,27 @@ local function notify(title, text, dur)
     StarterGui:SetCore("SendNotification", { Title=title, Text=text, Duration=dur or 3 })
 end
 
+local function hasPlacementOverlap()
+    local kids = PrevFolder:GetChildren()
+    if #kids == 0 then return false end
+    local sourceSet = {}
+    for _, b in ipairs(S.bricks) do sourceSet[b] = true end
+    local params = OverlapParams.new()
+    params.FilterType = Enum.RaycastFilterType.Include
+    params.FilterDescendantsInstances = { BrickRoot }
+    for _, preview in ipairs(kids) do
+        local ok, found = pcall(function()
+            return WS:GetPartsInPart(preview, params)
+        end)
+        if ok and found then
+            for _, part in ipairs(found) do
+                if not sourceSet[part] then return true end
+            end
+        end
+    end
+    return false
+end
+
 local MAT_STR = {
     [Enum.Material.SmoothPlastic]="smooth",  [Enum.Material.Plastic]     ="plastic",
     [Enum.Material.CeramicTiles] ="tiles",   [Enum.Material.Brick]       ="bricks",
@@ -758,9 +895,16 @@ end
 
 local function confirmPlace()
     if S.phase~="selected" and S.phase~="dragging" then return end
+    stopped = false
+    if hasPlacementOverlap() then
+        overlapFlashUntil = tick() + 0.5
+        notify("Clone Tool", "⚠ Can't place, selection overlaps existing bricks!", 3)
+        return
+    end
     local count = 0
     for _, brick in ipairs(S.bricks) do
         if stopped then break end
+        skipblock = false
         local d = serializeBrick(brick, S.off)
         local ghost = Instance.new("Part")
         ghost.Anchored   = true; ghost.CanCollide = false; ghost.CanQuery = false
@@ -776,21 +920,15 @@ local function confirmPlace()
         )
         ghost.Parent = WS
         oldprt = ghost
-
         buildblock(
             Vector3.new(d.p[1], d.p[2], d.p[3]),
             d.m,
             Color3.fromRGB(d.c[1],d.c[2],d.c[3]),
-            nil,
-            sz,
-            true,
-            d.o,
-            d.sp,
-            d.a,
-            d.cc
+            nil, sz, true, d.o, d.sp, d.a, d.cc
         )
         count += 1
     end
+    stopped = false
     resetTool()
     notify("Clone Tool", count.." brick(s) placed! ✔", 2)
 end
@@ -798,24 +936,47 @@ end
 Tool.Equipped:Connect(function()
     S.active = true
     ModeGui.Enabled = true
-    notify("Clone Tool", "Drag to select  •  Arrows to move  •  Q to place  •  X to cancel", 5)
+    notify("Clone Tool", "Drag to select  •  Arrows to move  •  Q to place  •  Q (idle) settings  •  Z skip  •  X cancel  •  Esc reset", 6)
 end)
 Tool.Unequipped:Connect(function()
     S.active = false
     ModeGui.Enabled = false
+    SettingsGui.Enabled = false
     resetTool()
 end)
 
 UIS.InputBegan:Connect(function(inp, gp)
     if gp or not S.active then return end
-    if inp.KeyCode==Enum.KeyCode.Q      then confirmPlace(); return end
-    if inp.KeyCode==Enum.KeyCode.Escape then resetTool();    return end
-    if inp.KeyCode==Enum.KeyCode.Z      then skipblock = true; return end
-    if inp.KeyCode==Enum.KeyCode.X      then stopped = true; resetTool(); return end
-    if inp.UserInputType~=Enum.UserInputType.MouseButton1 then return end
+
+    if inp.KeyCode == Enum.KeyCode.Q then
+        if S.phase == "selected" or S.phase == "dragging" then
+            task.spawn(confirmPlace)
+        else
+            SettingsGui.Enabled = not SettingsGui.Enabled
+        end
+        return
+    end
+
+    if inp.KeyCode == Enum.KeyCode.Z then
+        skipblock = true; return
+    end
+    if inp.KeyCode == Enum.KeyCode.X then
+        stopped = true; resetTool(); return
+    end
+    if inp.KeyCode == Enum.KeyCode.Escape then
+        if SettingsGui.Enabled then
+            SettingsGui.Enabled = false
+        else
+            resetTool()
+        end
+        return
+    end
+
+    if inp.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+    SettingsGui.Enabled = false
 
     local mx, my = Mouse.X, Mouse.Y
-    if S.phase=="selected" then
+    if S.phase == "selected" then
         local ax = getHoveredAxis()
         if ax then
             local ray = Camera:ViewportPointToRay(mx, my)
@@ -827,21 +988,21 @@ UIS.InputBegan:Connect(function(inp, gp)
             return
         end
     end
-    if S.phase=="idle" or S.phase=="selected" then
+    if S.phase == "idle" or S.phase == "selected" then
         resetTool()
-        S.phase="selecting"
-        dragStart2D=Vector2.new(mx,my); dragEnd2D=dragStart2D
+        S.phase = "selecting"
+        dragStart2D = Vector2.new(mx,my); dragEnd2D = dragStart2D
         showRect(true); setRect(dragStart2D, dragEnd2D)
     end
 end)
 
 UIS.InputChanged:Connect(function(inp, gp)
     if gp or not S.active then return end
-    if inp.UserInputType~=Enum.UserInputType.MouseMovement then return end
+    if inp.UserInputType ~= Enum.UserInputType.MouseMovement then return end
     local mx, my = Mouse.X, Mouse.Y
-    if S.phase=="selecting" then
-        dragEnd2D=Vector2.new(mx,my); setRect(dragStart2D, dragEnd2D)
-    elseif S.phase=="dragging" and S.axis and S.dragOrig then
+    if S.phase == "selecting" then
+        dragEnd2D = Vector2.new(mx,my); setRect(dragStart2D, dragEnd2D)
+    elseif S.phase == "dragging" and S.axis and S.dragOrig then
         local ray = Camera:ViewportPointToRay(mx, my)
         local pn  = bestPlaneNormal(S.axis)
         local hit = rayPlane(ray.Origin, ray.Direction*800, S.bCenter, pn)
@@ -859,9 +1020,8 @@ end)
 
 UIS.InputEnded:Connect(function(inp, gp)
     if gp or not S.active then return end
-    if inp.UserInputType~=Enum.UserInputType.MouseButton1 then return end
-
-    if S.phase=="selecting" then
+    if inp.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+    if S.phase == "selecting" then
         showRect(false)
         if (dragEnd2D-dragStart2D).Magnitude < MIN_DRAG then S.phase="idle"; return end
         local min2 = Vector2.new(math.min(dragStart2D.X,dragEnd2D.X), math.min(dragStart2D.Y,dragEnd2D.Y))
@@ -878,8 +1038,8 @@ UIS.InputEnded:Connect(function(inp, gp)
             S.phase = "idle"
             notify("Clone Tool", "No bricks in that area.", 2)
         end
-    elseif S.phase=="dragging" then
-        S.phase="selected"; S.axis=nil; S.dragOrig=nil
+    elseif S.phase == "dragging" then
+        S.phase = "selected"; S.axis = nil; S.dragOrig = nil
     end
 end)
 
@@ -889,15 +1049,14 @@ RS.RenderStepped:Connect(function()
               or (S.phase=="dragging") and S.axis
               or nil
     if S.phase~="selected" and S.phase~="dragging" then return end
-
-    local center = S.bCenter + S.off
-
+    local center   = S.bCenter + S.off
+    local isFlash  = tick() < overlapFlashUntil
+    local boxColor = isFlash and Color3.fromRGB(255, 50, 50) or TOOL_COLOR
     gizmo.reset()
-    gizmo.setColor3(TOOL_COLOR)
+    gizmo.setColor3(boxColor)
     gizmo.setTransparency(0.1)
     gizmo.setScale(1)
     gizmo.drawWireBox(CFrame.new(center), S.bSize + Vector3.new(0.3,0.3,0.3))
-
     for _, ax in ipairs(AXES_ORDER) do
         local cfg      = AXIS_CFG[ax]
         local isActive = (ax==S.hovAxis)
