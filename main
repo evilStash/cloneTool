@@ -487,6 +487,10 @@ local MIN_DRAG   = 6
 local GZ_LEN     = 5
 local overlapFlashUntil = 0
 
+local SEL_COLOR_NORMAL   = Color3.fromRGB(255, 210,  60)
+local SEL_COLOR_HOVER    = Color3.fromRGB(255,  80,  80)
+local SEL_HOVER_PX       = 80
+
 local CORNERS = {
     Vector3.new( 1, 1, 1), Vector3.new(-1, 1, 1),
     Vector3.new( 1,-1, 1), Vector3.new( 1, 1,-1),
@@ -495,11 +499,75 @@ local CORNERS = {
 }
 
 local AXIS_CFG = {
-    X = { color = Color3.fromRGB(255, 60,  60),  dir = Vector3.new(1,0,0) },
-    Y = { color = Color3.fromRGB( 60, 220, 60),  dir = Vector3.new(0,1,0) },
-    Z = { color = Color3.fromRGB( 60, 110, 255), dir = Vector3.new(0,0,1) },
+    ["X+"] = { color = Color3.fromRGB(255, 60,  60),  dir = Vector3.new( 1, 0, 0), base = "X" },
+    ["X-"] = { color = Color3.fromRGB(255, 60,  60),  dir = Vector3.new(-1, 0, 0), base = "X" },
+    ["Y+"] = { color = Color3.fromRGB( 60, 220, 60),  dir = Vector3.new( 0, 1, 0), base = "Y" },
+    ["Y-"] = { color = Color3.fromRGB( 60, 220, 60),  dir = Vector3.new( 0,-1, 0), base = "Y" },
+    ["Z+"] = { color = Color3.fromRGB( 60, 110, 255), dir = Vector3.new( 0, 0, 1), base = "Z" },
+    ["Z-"] = { color = Color3.fromRGB( 60, 110, 255), dir = Vector3.new( 0, 0,-1), base = "Z" },
 }
-local AXES_ORDER = {"X","Y","Z"}
+local AXES_ORDER = {"X+","X-","Y+","Y-","Z+","Z-"}
+
+local MAX_QUICK_SAVES = 5
+local quickSaves = {}
+
+local function snapshotFingerprint(brickData)
+    if #brickData == 0 then return "" end
+    local cx, cy, cz = 0, 0, 0
+    for _, bd in ipairs(brickData) do
+        local p = bd.CFrame.Position
+        cx = cx + math.round(p.X)
+        cy = cy + math.round(p.Y)
+        cz = cz + math.round(p.Z)
+    end
+    local n = #brickData
+    cx = math.round(cx / n)
+    cy = math.round(cy / n)
+    cz = math.round(cz / n)
+    local parts = {}
+    for _, bd in ipairs(brickData) do
+        local p = bd.CFrame.Position
+        table.insert(parts, string.format("%d,%d,%d|%d,%d,%d|%d,%d,%d|%s|%s|%s",
+            math.round(p.X) - cx, math.round(p.Y) - cy, math.round(p.Z) - cz,
+            math.round(bd.Size.X), math.round(bd.Size.Y), math.round(bd.Size.Z),
+            math.round(bd.Color.R * 255), math.round(bd.Color.G * 255), math.round(bd.Color.B * 255),
+            bd.Material.Name,
+            tostring(bd.Anchored),
+            tostring(bd.CanCollide)
+        ))
+    end
+    table.sort(parts)
+    return table.concat(parts, ";")
+end
+
+local function saveSnapshot()
+    if #(S and S.bricks or {}) == 0 then return end
+    local snap = {
+        brickData = {},
+        off       = S.off,
+        center    = S.bCenter,
+        bSize     = S.bSize,
+        label     = #S.bricks .. " brick" .. (#S.bricks == 1 and "" or "s"),
+    }
+    for _, b in ipairs(S.bricks) do
+        table.insert(snap.brickData, {
+            CFrame     = b.CFrame,
+            Size       = b.Size,
+            Color      = b.Color,
+            Material   = b.Material,
+            Anchored   = b:GetAttribute("OrigAnchored")   ~= nil and b:GetAttribute("OrigAnchored")   or b.Anchored,
+            CanCollide = b:GetAttribute("OrigCanCollide") ~= nil and b:GetAttribute("OrigCanCollide") or b.CanCollide,
+        })
+    end
+    snap.fingerprint = snapshotFingerprint(snap.brickData)
+    for _, existing in ipairs(quickSaves) do
+        if existing.fingerprint == snap.fingerprint then return end
+    end
+    table.insert(quickSaves, 1, snap)
+    if #quickSaves > MAX_QUICK_SAVES then
+        table.remove(quickSaves)
+    end
+end
 
 local function makeLabel(parent, text, anchorX, posX, posY, sizeX, sizeY, textColor, strokeColor)
     local l = Instance.new("TextLabel")
@@ -604,6 +672,46 @@ ModeBtn.MouseButton1Click:Connect(function()
     end
 end)
 
+local SelModeGui = Instance.new("ScreenGui")
+SelModeGui.Name         = "CloneSelModeGui"
+SelModeGui.ResetOnSpawn = false
+SelModeGui.Enabled      = false
+SelModeGui.Parent       = game:GetService("CoreGui")
+
+local SelModeBadge = Instance.new("Frame")
+SelModeBadge.AnchorPoint            = Vector2.new(0.5, 0)
+SelModeBadge.Position               = UDim2.new(0.5, 0, 0, 32)
+SelModeBadge.Size                   = UDim2.new(0, 260, 0, 22)
+SelModeBadge.BackgroundColor3       = Color3.fromRGB(255, 200, 40)
+SelModeBadge.BackgroundTransparency = 0.25
+SelModeBadge.BorderSizePixel        = 0
+SelModeBadge.Parent                 = SelModeGui
+
+local SelModeBadgeCorner = Instance.new("UICorner")
+SelModeBadgeCorner.CornerRadius = UDim.new(0.35, 0)
+SelModeBadgeCorner.Parent       = SelModeBadge
+
+local SelModeBadgeStroke = Instance.new("UIStroke")
+SelModeBadgeStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+SelModeBadgeStroke.Color           = Color3.fromRGB(200, 140, 0)
+SelModeBadgeStroke.Thickness       = 1.5
+SelModeBadgeStroke.Parent          = SelModeBadge
+
+local SelModeText = Instance.new("TextLabel")
+SelModeText.AnchorPoint            = Vector2.new(0.5, 0.5)
+SelModeText.Position               = UDim2.new(0.5, 0, 0.5, 0)
+SelModeText.Size                   = UDim2.new(1, -6, 1, 0)
+SelModeText.BackgroundTransparency = 1
+SelModeText.BorderSizePixel        = 0
+SelModeText.Font                   = Enum.Font.FredokaOne
+SelModeText.Text                   = "✏ SELECT MODE  •  click bricks to remove  •  S to exit"
+SelModeText.TextColor3             = Color3.fromRGB(40, 20, 0)
+SelModeText.TextScaled             = true
+SelModeText.TextStrokeColor3       = Color3.fromRGB(255, 240, 180)
+SelModeText.TextStrokeTransparency = 0.7
+SelModeText.TextWrapped            = true
+SelModeText.Parent                 = SelModeBadge
+
 local SettingsGui = Instance.new("ScreenGui")
 SettingsGui.Name         = "CloneSettingsGui"
 SettingsGui.ResetOnSpawn = false
@@ -661,17 +769,230 @@ BHBox.FocusLost:Connect(function()
     BHBox.Text = ""
 end)
 
-local S = {
-    active   = false,
-    phase    = "idle",
-    bricks   = {},
-    bCenter  = Vector3.zero,
-    bSize    = Vector3.zero,
-    rawOff   = Vector3.zero,
-    off      = Vector3.zero,
-    axis     = nil,
-    dragOrig = nil,
-    hovAxis  = nil,
+local SavesGui = Instance.new("ScreenGui")
+SavesGui.Name         = "CloneSavesGui"
+SavesGui.ResetOnSpawn = false
+SavesGui.Enabled      = false
+SavesGui.Parent       = game:GetService("CoreGui")
+
+local SavesPanel = Instance.new("Frame")
+SavesPanel.AnchorPoint            = Vector2.new(0, 1)
+SavesPanel.Position               = UDim2.new(0, 12, 1, -12)
+SavesPanel.Size                   = UDim2.new(0, 210, 0, 0)
+SavesPanel.BackgroundColor3       = Color3.fromRGB(14, 18, 26)
+SavesPanel.BackgroundTransparency = 0.18
+SavesPanel.BorderSizePixel        = 0
+SavesPanel.ClipsDescendants       = true
+SavesPanel.Parent                 = SavesGui
+
+local SavesPanelCorner = Instance.new("UICorner")
+SavesPanelCorner.CornerRadius = UDim.new(0, 10)
+SavesPanelCorner.Parent       = SavesPanel
+
+local SavesPanelStroke = Instance.new("UIStroke")
+SavesPanelStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+SavesPanelStroke.Color           = TOOL_COLOR
+SavesPanelStroke.Thickness       = 1.5
+SavesPanelStroke.Transparency    = 0.3
+SavesPanelStroke.Parent          = SavesPanel
+
+local SavesHeader = Instance.new("Frame")
+SavesHeader.Size                   = UDim2.new(1, 0, 0, 34)
+SavesHeader.Position               = UDim2.new(0, 0, 0, 0)
+SavesHeader.BackgroundColor3       = TOOL_COLOR
+SavesHeader.BackgroundTransparency = 0.65
+SavesHeader.BorderSizePixel        = 0
+SavesHeader.Parent                 = SavesPanel
+
+local SavesHeaderCorner = Instance.new("UICorner")
+SavesHeaderCorner.CornerRadius = UDim.new(0, 10)
+SavesHeaderCorner.Parent       = SavesHeader
+
+local SavesHeaderFill = Instance.new("Frame")
+SavesHeaderFill.Size                   = UDim2.new(1, 0, 0.5, 0)
+SavesHeaderFill.Position              = UDim2.new(0, 0, 0.5, 0)
+SavesHeaderFill.BackgroundColor3       = TOOL_COLOR
+SavesHeaderFill.BackgroundTransparency = 0.65
+SavesHeaderFill.BorderSizePixel        = 0
+SavesHeaderFill.Parent                 = SavesHeader
+
+local SavesTitle = Instance.new("TextLabel")
+SavesTitle.AnchorPoint            = Vector2.new(0, 0.5)
+SavesTitle.Position               = UDim2.new(0, 10, 0.5, 0)
+SavesTitle.Size                   = UDim2.new(0.72, 0, 0.7, 0)
+SavesTitle.BackgroundTransparency = 1
+SavesTitle.BorderSizePixel        = 0
+SavesTitle.Font                   = Enum.Font.FredokaOne
+SavesTitle.Text                   = "💾  quick saves"
+SavesTitle.TextColor3             = Color3.fromRGB(255, 255, 255)
+SavesTitle.TextScaled             = true
+SavesTitle.TextXAlignment         = Enum.TextXAlignment.Left
+SavesTitle.TextStrokeColor3       = Color3.fromRGB(28, 87, 127)
+SavesTitle.TextStrokeTransparency = 0
+SavesTitle.Parent                 = SavesHeader
+
+local GearBtn = Instance.new("TextButton")
+GearBtn.AnchorPoint            = Vector2.new(1, 0.5)
+GearBtn.Position               = UDim2.new(1, -8, 0.5, 0)
+GearBtn.Size                   = UDim2.new(0, 26, 0, 22)
+GearBtn.BackgroundColor3       = Color3.fromRGB(30, 40, 60)
+GearBtn.BackgroundTransparency = 0.4
+GearBtn.BorderSizePixel        = 0
+GearBtn.Font                   = Enum.Font.FredokaOne
+GearBtn.Text                   = "⚙"
+GearBtn.TextColor3             = TOOL_COLOR
+GearBtn.TextScaled             = true
+GearBtn.TextStrokeColor3       = Color3.fromRGB(0, 0, 0)
+GearBtn.TextStrokeTransparency = 0.4
+GearBtn.Parent                 = SavesHeader
+
+local GearBtnCorner = Instance.new("UICorner")
+GearBtnCorner.CornerRadius = UDim.new(0.25, 0)
+GearBtnCorner.Parent       = GearBtn
+
+GearBtn.MouseButton1Click:Connect(function()
+    SettingsGui.Enabled = not SettingsGui.Enabled
+end)
+
+local SavesList = Instance.new("Frame")
+SavesList.Size                   = UDim2.new(1, 0, 0, 0)
+SavesList.Position               = UDim2.new(0, 0, 0, 34)
+SavesList.BackgroundTransparency = 1
+SavesList.BorderSizePixel        = 0
+SavesList.Parent                 = SavesPanel
+
+local SavesListLayout = Instance.new("UIListLayout")
+SavesListLayout.SortOrder        = Enum.SortOrder.LayoutOrder
+SavesListLayout.Padding          = UDim.new(0, 2)
+SavesListLayout.Parent           = SavesList
+
+local SavesListPad = Instance.new("UIPadding")
+SavesListPad.PaddingLeft   = UDim.new(0, 6)
+SavesListPad.PaddingRight  = UDim.new(0, 6)
+SavesListPad.PaddingTop    = UDim.new(0, 5)
+SavesListPad.PaddingBottom = UDim.new(0, 6)
+SavesListPad.Parent        = SavesList
+
+local SavesEmpty = Instance.new("TextLabel")
+SavesEmpty.Size                   = UDim2.new(1, -12, 0, 38)
+SavesEmpty.BackgroundTransparency = 1
+SavesEmpty.BorderSizePixel        = 0
+SavesEmpty.Font                   = Enum.Font.FredokaOne
+SavesEmpty.Text                   = "no saves yet  •  clone bricks to save"
+SavesEmpty.TextColor3             = Color3.fromRGB(130, 150, 180)
+SavesEmpty.TextScaled             = true
+SavesEmpty.TextStrokeColor3       = Color3.fromRGB(0, 0, 0)
+SavesEmpty.TextStrokeTransparency = 0.5
+SavesEmpty.TextWrapped            = true
+SavesEmpty.LayoutOrder            = 99
+SavesEmpty.Parent                 = SavesList
+
+local function rebuildSavesUI()
+    for _, ch in ipairs(SavesList:GetChildren()) do
+        if ch:IsA("TextButton") then ch:Destroy() end
+    end
+
+    if #quickSaves == 0 then
+        SavesEmpty.Visible = true
+        SavesList.Size     = UDim2.new(1, 0, 0, 50)
+        SavesPanel.Size    = UDim2.new(0, 210, 0, 34 + 50)
+        return
+    end
+
+    SavesEmpty.Visible = false
+    local ITEM_H = 34
+
+    for i, snap in ipairs(quickSaves) do
+        local btn = Instance.new("TextButton")
+        btn.Size                   = UDim2.new(1, 0, 0, ITEM_H)
+        btn.BackgroundColor3       = Color3.fromRGB(20, 30, 48)
+        btn.BackgroundTransparency = 0.35
+        btn.BorderSizePixel        = 0
+        btn.Font                   = Enum.Font.FredokaOne
+        btn.Text                   = ""
+        btn.LayoutOrder            = i
+        btn.Parent                 = SavesList
+
+        local btnCorner = Instance.new("UICorner")
+        btnCorner.CornerRadius = UDim.new(0, 7)
+        btnCorner.Parent       = btn
+
+        local swatchColor = (#snap.brickData > 0) and snap.brickData[1].Color or TOOL_COLOR
+        local swatch = Instance.new("Frame")
+        swatch.AnchorPoint          = Vector2.new(0, 0.5)
+        swatch.Position             = UDim2.new(0, 7, 0.5, 0)
+        swatch.Size                 = UDim2.new(0, 14, 0, 14)
+        swatch.BackgroundColor3     = swatchColor
+        swatch.BorderSizePixel      = 0
+        swatch.Parent               = btn
+        local sc = Instance.new("UICorner")
+        sc.CornerRadius = UDim.new(0.3, 0)
+        sc.Parent       = swatch
+
+        local idxLabel = Instance.new("TextLabel")
+        idxLabel.AnchorPoint            = Vector2.new(0, 0.5)
+        idxLabel.Position               = UDim2.new(0, 27, 0.5, 0)
+        idxLabel.Size                   = UDim2.new(0, 20, 0.7, 0)
+        idxLabel.BackgroundTransparency = 1
+        idxLabel.BorderSizePixel        = 0
+        idxLabel.Font                   = Enum.Font.FredokaOne
+        idxLabel.Text                   = "#"..i
+        idxLabel.TextColor3             = TOOL_COLOR
+        idxLabel.TextScaled             = true
+        idxLabel.TextStrokeColor3       = Color3.fromRGB(0,0,0)
+        idxLabel.TextStrokeTransparency = 0.3
+        idxLabel.Parent                 = btn
+
+        local nameLabel = Instance.new("TextLabel")
+        nameLabel.AnchorPoint            = Vector2.new(0, 0.5)
+        nameLabel.Position               = UDim2.new(0, 52, 0.5, 0)
+        nameLabel.Size                   = UDim2.new(1, -62, 0.75, 0)
+        nameLabel.BackgroundTransparency = 1
+        nameLabel.BorderSizePixel        = 0
+        nameLabel.Font                   = Enum.Font.FredokaOne
+        nameLabel.Text                   = snap.label
+        nameLabel.TextColor3             = Color3.fromRGB(220, 230, 255)
+        nameLabel.TextScaled             = true
+        nameLabel.TextXAlignment         = Enum.TextXAlignment.Left
+        nameLabel.TextStrokeColor3       = Color3.fromRGB(0,0,0)
+        nameLabel.TextStrokeTransparency = 0.4
+        nameLabel.Parent                 = btn
+
+        btn.MouseEnter:Connect(function()
+            btn.BackgroundColor3       = Color3.fromRGB(30, 55, 90)
+            btn.BackgroundTransparency = 0.1
+        end)
+        btn.MouseLeave:Connect(function()
+            btn.BackgroundColor3       = Color3.fromRGB(20, 30, 48)
+            btn.BackgroundTransparency = 0.35
+        end)
+
+        local capturedSnap = snap
+        btn.MouseButton1Click:Connect(function()
+            restoreSnapshot(capturedSnap)
+            SavesGui.Enabled = false
+        end)
+    end
+
+    local listH = #quickSaves * (ITEM_H + 2) + 11
+    SavesList.Size  = UDim2.new(1, 0, 0, listH)
+    SavesPanel.Size = UDim2.new(0, 210, 0, 34 + listH)
+end
+
+S = {
+    active      = false,
+    phase       = "idle",
+    bricks      = {},
+    bCenter     = Vector3.zero,
+    bSize       = Vector3.zero,
+    rawOff      = Vector3.zero,
+    off         = Vector3.zero,
+    axis        = nil,
+    dragOrig    = nil,
+    hovAxis     = nil,
+    selectMode  = false,
+    ghostFolder = nil,
+    hovBrickIdx = nil,
 }
 local dragStart2D = Vector2.zero
 local dragEnd2D   = Vector2.zero
@@ -696,18 +1017,18 @@ local HitFolder = Instance.new("Folder")
 HitFolder.Name="_CloneGizHit"; HitFolder.Parent=WS
 
 local HitParts = {}
-for _, ax in ipairs(AXES_ORDER) do
+for _, key in ipairs(AXES_ORDER) do
     local p = Instance.new("Part")
-    p.Name="GZHit_"..ax; p.Anchored=true; p.CanCollide=false
+    p.Name="GZHit_"..key; p.Anchored=true; p.CanCollide=false
     p.CanQuery=false; p.CastShadow=false; p.Transparency=1
     p.Size = Vector3.new(GZ_LEN, 1.5, 1.5); p.Parent=HitFolder
-    HitParts[ax] = p
+    HitParts[key] = p
 end
 
 local function placeHitParts(center)
-    for _, ax in ipairs(AXES_ORDER) do
-        local d = AXIS_CFG[ax].dir
-        HitParts[ax].CFrame = CFrame.lookAt(center, center+d) * CFrame.new(0,0,-GZ_LEN/2)
+    for _, key in ipairs(AXES_ORDER) do
+        local d = AXIS_CFG[key].dir
+        HitParts[key].CFrame = CFrame.lookAt(center, center+d) * CFrame.new(0,0,-GZ_LEN/2)
     end
 end
 local function setHitPartsActive(on)
@@ -719,7 +1040,7 @@ local function getHoveredAxis()
     rp.FilterType = Enum.RaycastFilterType.Include
     rp.FilterDescendantsInstances = { HitFolder }
     local res = WS:Raycast(ray.Origin, ray.Direction*800, rp)
-    if res then return res.Instance.Name:match("_(%a)$") end
+    if res then return res.Instance.Name:sub(#"GZHit_" + 1) end
     return nil
 end
 
@@ -877,22 +1198,87 @@ local MAT_STR = {
 local function serializeBrick(brick, offset)
     local pos  = brick.Position + offset
     local size = brick.Size
+    local isAnch  = brick:GetAttribute("OrigAnchored")   ~= nil and brick:GetAttribute("OrigAnchored")   or brick.Anchored
+    local isCol   = brick:GetAttribute("OrigCanCollide") ~= nil and brick:GetAttribute("OrigCanCollide") or brick.CanCollide
     return {
         p  = { (pos.X-size.X/2)+0.5, (pos.Y-size.Y/2)+0.5, (pos.Z-size.Z/2)+0.5 },
         s  = { size.X, size.Y, size.Z },
         c  = { math.round(brick.Color.R*255), math.round(brick.Color.G*255), math.round(brick.Color.B*255) },
         m  = MAT_STR[brick.Material] or "smooth",
         o  = brick.Material.Name,
-        a  = brick.Anchored,
-        cc = brick.CanCollide,
+        a  = isAnch,
+        cc = isCol,
         sp = {},
     }
 end
 
-local function resetTool()
+local function findBrickIdxAtMouse(mx, my)
+    local best, bestScore = nil, math.huge
+    for i, b in ipairs(S.bricks) do
+        local worldPos = b.CFrame.Position + S.off
+        local vp = Camera:WorldToViewportPoint(worldPos)
+        if vp.Z > 0 then
+            local screenDist = (Vector2.new(vp.X, vp.Y) - Vector2.new(mx, my)).Magnitude
+            local apparentR = math.clamp(
+                (b.Size.Magnitude / (2 * vp.Z)) * Camera.ViewportSize.Y,
+                24, 120
+            )
+            if screenDist <= apparentR and screenDist < bestScore then
+                bestScore = screenDist
+                best      = i
+            end
+        end
+    end
+    return best
+end
+
+function restoreSnapshot(snap)
+    if S.ghostFolder then S.ghostFolder:Destroy(); S.ghostFolder = nil end
     S.phase="idle"; S.bricks={}; S.rawOff=Vector3.zero; S.off=Vector3.zero
-    S.axis=nil; S.dragOrig=nil; S.hovAxis=nil
+    S.axis=nil; S.dragOrig=nil; S.hovAxis=nil; S.selectMode=false; S.hovBrickIdx=nil
     showRect(false); setHitPartsActive(false); clearPreview()
+    SelModeGui.Enabled = false
+
+    local ghosts = Instance.new("Folder")
+    ghosts.Name   = "_CloneSnapGhosts"
+    ghosts.Parent = WS
+    S.ghostFolder = ghosts
+
+    for _, bd in ipairs(snap.brickData) do
+        local p = Instance.new("Part")
+        p.Anchored    = true
+        p.CanCollide  = false
+        p.CanQuery    = false
+        p.CastShadow  = false
+        p.Transparency = 1
+        p.CFrame      = bd.CFrame
+        p.Size        = bd.Size
+        p.Color       = bd.Color
+        p.Material    = bd.Material
+        p:SetAttribute("OrigAnchored",   bd.Anchored)
+        p:SetAttribute("OrigCanCollide", bd.CanCollide)
+        p.Parent = ghosts
+        table.insert(S.bricks, p)
+    end
+
+    S.off     = snap.off
+    S.rawOff  = snap.off
+    S.bCenter = snap.center
+    S.bSize   = snap.bSize
+
+    S.phase = "selected"
+    spawnPreview()
+    placeHitParts(S.bCenter + S.off)
+    setHitPartsActive(true)
+    notify("Clone Tool", "Restored save ("..#S.bricks.." brick"..( #S.bricks==1 and "" or "s")..") at saved position  •  Q to place", 3)
+end
+
+local function resetTool()
+    if S.ghostFolder then S.ghostFolder:Destroy(); S.ghostFolder = nil end
+    S.phase="idle"; S.bricks={}; S.rawOff=Vector3.zero; S.off=Vector3.zero
+    S.axis=nil; S.dragOrig=nil; S.hovAxis=nil; S.selectMode=false; S.hovBrickIdx=nil
+    showRect(false); setHitPartsActive(false); clearPreview()
+    SelModeGui.Enabled = false
 end
 
 local function confirmPlace()
@@ -900,9 +1286,13 @@ local function confirmPlace()
     stopped = false
     if hasPlacementOverlap() then
         overlapFlashUntil = tick() + 0.5
-        notify("Clone Tool", "⚠ Can't place, selection overlaps existing bricks!", 3)
+        notify("Clone Tool", "⚠ Can't place — selection overlaps existing bricks!", 3)
         return
     end
+
+    saveSnapshot()
+    rebuildSavesUI()
+
     local count = 0
     for _, brick in ipairs(S.bricks) do
         if stopped then break end
@@ -938,12 +1328,14 @@ end
 Tool.Equipped:Connect(function()
     S.active = true
     ModeGui.Enabled = true
-    notify("Clone Tool", "Drag to select  •  Arrows to move  •  Q to place  •  Q (idle) settings  •  Z skip  •  X cancel  •  Esc reset", 6)
+    notify("Clone Tool", "Drag to select  •  Arrows to move  •  Q to place  •  P (selected) select mode  •  Q (idle) saves  •  Z skip  •  X cancel  •  Esc reset", 7)
 end)
 Tool.Unequipped:Connect(function()
     S.active = false
     ModeGui.Enabled = false
     SettingsGui.Enabled = false
+    SavesGui.Enabled    = false
+    SelModeGui.Enabled  = false
     resetTool()
 end)
 
@@ -954,7 +1346,18 @@ UIS.InputBegan:Connect(function(inp, gp)
         if S.phase == "selected" or S.phase == "dragging" then
             task.spawn(confirmPlace)
         else
-            SettingsGui.Enabled = not SettingsGui.Enabled
+            rebuildSavesUI()
+            SavesGui.Enabled    = not SavesGui.Enabled
+            SettingsGui.Enabled = false
+        end
+        return
+    end
+
+    if inp.KeyCode == Enum.KeyCode.P then
+        if S.phase == "selected" or S.phase == "dragging" then
+            S.selectMode       = not S.selectMode
+            S.hovBrickIdx      = nil
+            SelModeGui.Enabled = S.selectMode and S.active
         end
         return
     end
@@ -968,6 +1371,11 @@ UIS.InputBegan:Connect(function(inp, gp)
     if inp.KeyCode == Enum.KeyCode.Escape then
         if SettingsGui.Enabled then
             SettingsGui.Enabled = false
+        elseif SavesGui.Enabled then
+            SavesGui.Enabled = false
+        elseif S.selectMode then
+            S.selectMode = false; S.hovBrickIdx = nil
+            SelModeGui.Enabled = false
         else
             resetTool()
         end
@@ -975,21 +1383,42 @@ UIS.InputBegan:Connect(function(inp, gp)
     end
 
     if inp.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+
+    SavesGui.Enabled    = false
     SettingsGui.Enabled = false
 
     local mx, my = Mouse.X, Mouse.Y
-    if S.phase == "selected" then
-        local ax = getHoveredAxis()
-        if ax then
+
+    if S.selectMode and (S.phase == "selected" or S.phase == "dragging") then
+        local idx = findBrickIdxAtMouse(mx, my)
+        if idx then
+            table.remove(S.bricks, idx)
+            if #S.bricks > 0 then
+                S.bCenter, S.bSize = calcBounds(S.bricks)
+                clearPreview(); spawnPreview()
+                placeHitParts(S.bCenter + S.off)
+                notify("Clone Tool", #S.bricks.." brick(s) remaining", 2)
+            else
+                notify("Clone Tool", "All bricks deselected.", 2)
+                resetTool()
+            end
+        end
+        return
+    end
+
+    if S.phase == "selected" and not S.selectMode then
+        local key = getHoveredAxis()
+        if key then
             local ray = Camera:ViewportPointToRay(mx, my)
-            local pn  = bestPlaneNormal(ax)
+            local pn  = bestPlaneNormal(AXIS_CFG[key].base)
             local hit = rayPlane(ray.Origin, ray.Direction*800, S.bCenter+S.off, pn)
             if hit then
-                S.phase="dragging"; S.axis=ax; S.dragOrig=hit; S.rawOff=S.off
+                S.phase="dragging"; S.axis=key; S.dragOrig=hit; S.rawOff=S.off
             end
             return
         end
     end
+
     if S.phase == "idle" or S.phase == "selected" then
         resetTool()
         S.phase = "selecting"
@@ -1002,11 +1431,13 @@ UIS.InputChanged:Connect(function(inp, gp)
     if gp or not S.active then return end
     if inp.UserInputType ~= Enum.UserInputType.MouseMovement then return end
     local mx, my = Mouse.X, Mouse.Y
+
     if S.phase == "selecting" then
         dragEnd2D = Vector2.new(mx,my); setRect(dragStart2D, dragEnd2D)
-    elseif S.phase == "dragging" and S.axis and S.dragOrig then
+
+    elseif S.phase == "dragging" and S.axis and S.dragOrig and not S.selectMode then
         local ray = Camera:ViewportPointToRay(mx, my)
-        local pn  = bestPlaneNormal(S.axis)
+        local pn  = bestPlaneNormal(AXIS_CFG[S.axis].base)
         local hit = rayPlane(ray.Origin, ray.Direction*800, S.bCenter, pn)
         if hit then
             local delta = hit - S.dragOrig
@@ -1017,6 +1448,9 @@ UIS.InputChanged:Connect(function(inp, gp)
             refreshPreview()
             placeHitParts(S.bCenter + S.off)
         end
+
+    elseif S.selectMode and (S.phase == "selected" or S.phase == "dragging") then
+        S.hovBrickIdx = findBrickIdxAtMouse(mx, my)
     end
 end)
 
@@ -1035,37 +1469,59 @@ UIS.InputEnded:Connect(function(inp, gp)
             S.phase = "selected"
             S.bCenter, S.bSize = calcBounds(S.bricks)
             spawnPreview(); placeHitParts(S.bCenter); setHitPartsActive(true)
-            notify("Clone Tool", #S.bricks.." brick(s) selected  •  drag arrows  •  Q to place", 3)
+            notify("Clone Tool", #S.bricks.." brick(s) selected  •  drag arrows  •  S select mode  •  Q to place", 3)
         else
             S.phase = "idle"
             notify("Clone Tool", "No bricks in that area.", 2)
         end
-    elseif S.phase == "dragging" then
+    elseif S.phase == "dragging" and not S.selectMode then
         S.phase = "selected"; S.axis = nil; S.dragOrig = nil
     end
 end)
 
 RS.RenderStepped:Connect(function()
     if not S.active then return end
-    S.hovAxis = (S.phase=="selected") and getHoveredAxis()
-              or (S.phase=="dragging") and S.axis
+
+    if SelModeGui.Enabled ~= (S.selectMode and S.active and (S.phase=="selected" or S.phase=="dragging")) then
+        SelModeGui.Enabled = S.selectMode and S.active and (S.phase=="selected" or S.phase=="dragging")
+    end
+
+    S.hovAxis = (S.phase=="selected" and not S.selectMode) and getHoveredAxis()
+              or (S.phase=="dragging" and not S.selectMode) and S.axis
               or nil
+
     if S.phase~="selected" and S.phase~="dragging" then return end
+
     local center   = S.bCenter + S.off
     local isFlash  = tick() < overlapFlashUntil
     local boxColor = isFlash and Color3.fromRGB(255, 50, 50) or TOOL_COLOR
+
     gizmo.reset()
     gizmo.setColor3(boxColor)
     gizmo.setTransparency(0.1)
     gizmo.setScale(1)
     gizmo.drawWireBox(CFrame.new(center), S.bSize + Vector3.new(0.3,0.3,0.3))
-    for _, ax in ipairs(AXES_ORDER) do
-        local cfg      = AXIS_CFG[ax]
-        local isActive = (ax==S.hovAxis)
-        gizmo.reset()
-        gizmo.setColor3(cfg.color)
-        gizmo.setTransparency(isActive and 0 or 0.3)
-        gizmo.setScale(isActive and 2.2 or 1)
-        gizmo.drawArrow(center, center + cfg.dir*GZ_LEN)
+
+    if S.selectMode then
+        for i, brick in ipairs(S.bricks) do
+            local isHov    = (i == S.hovBrickIdx)
+            local outColor = isHov and SEL_COLOR_HOVER or SEL_COLOR_NORMAL
+            gizmo.reset()
+            gizmo.setColor3(outColor)
+            gizmo.setTransparency(isHov and 0 or 0.25)
+            gizmo.setScale(isHov and 1.8 or 1.2)
+            local pCF = brick.CFrame + S.off
+            gizmo.drawWireBox(pCF, brick.Size + Vector3.new(0.18, 0.18, 0.18))
+        end
+    else
+        for _, key in ipairs(AXES_ORDER) do
+            local cfg      = AXIS_CFG[key]
+            local isActive = (key==S.hovAxis)
+            gizmo.reset()
+            gizmo.setColor3(cfg.color)
+            gizmo.setTransparency(isActive and 0 or 0.3)
+            gizmo.setScale(isActive and 2.2 or 1)
+            gizmo.drawArrow(center, center + cfg.dir*GZ_LEN)
+        end
     end
 end)
