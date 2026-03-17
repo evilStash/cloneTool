@@ -1328,7 +1328,7 @@ end
 Tool.Equipped:Connect(function()
     S.active = true
     ModeGui.Enabled = true
-    notify("Clone Tool", "Drag to select  •  Arrows to move  •  Q to place  •  P (selected) select mode  •  Q (idle) saves  •  Z skip  •  X cancel  •  Esc reset", 7)
+    notify("Clone Tool", "Drag to select  •  Arrows to move  •  Q to place  •  P (selected) select mode  •  Q (idle) saves  •  Z skip  •  X cancel k thx", 7)
 end)
 Tool.Unequipped:Connect(function()
     S.active = false
@@ -1469,7 +1469,7 @@ UIS.InputEnded:Connect(function(inp, gp)
             S.phase = "selected"
             S.bCenter, S.bSize = calcBounds(S.bricks)
             spawnPreview(); placeHitParts(S.bCenter); setHitPartsActive(true)
-            notify("Clone Tool", #S.bricks.." brick(s) selected  •  drag arrows  •  S select mode  •  Q to place", 3)
+            notify("Clone Tool", #S.bricks.." brick(s) selected  •  drag arrows  •  P select mode  •  Q to place", 3)
         else
             S.phase = "idle"
             notify("Clone Tool", "No bricks in that area.", 2)
