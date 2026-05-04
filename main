@@ -980,19 +980,20 @@ local function rebuildSavesUI()
 end
 
 S = {
-    active      = false,
-    phase       = "idle",
-    bricks      = {},
-    bCenter     = Vector3.zero,
-    bSize       = Vector3.zero,
-    rawOff      = Vector3.zero,
-    off         = Vector3.zero,
-    axis        = nil,
-    dragOrig    = nil,
-    hovAxis     = nil,
-    selectMode  = false,
-    ghostFolder = nil,
-    hovBrickIdx = nil,
+    active        = false,
+    phase         = "idle",
+    bricks        = {},
+    bCenter       = Vector3.zero,
+    bSize         = Vector3.zero,
+    rawOff        = Vector3.zero,
+    off           = Vector3.zero,
+    axis          = nil,
+    dragOrig      = nil,
+    hovAxis       = nil,
+    selectMode    = false,
+    ghostFolder   = nil,
+    hovBrickIdx   = nil,
+    activeSaveIdx = nil,   -- index in quickSaves if this selection came from a restore
 }
 local dragStart2D = Vector2.zero
 local dragEnd2D   = Vector2.zero
@@ -1235,7 +1236,7 @@ end
 function restoreSnapshot(snap)
     if S.ghostFolder then S.ghostFolder:Destroy(); S.ghostFolder = nil end
     S.phase="idle"; S.bricks={}; S.rawOff=Vector3.zero; S.off=Vector3.zero
-    S.axis=nil; S.dragOrig=nil; S.hovAxis=nil; S.selectMode=false; S.hovBrickIdx=nil
+    S.axis=nil; S.dragOrig=nil; S.hovAxis=nil; S.selectMode=false; S.hovBrickIdx=nil; S.activeSaveIdx=nil
     showRect(false); setHitPartsActive(false); clearPreview()
     SelModeGui.Enabled = false
 
@@ -1266,6 +1267,11 @@ function restoreSnapshot(snap)
     S.bCenter = snap.center
     S.bSize   = snap.bSize
 
+    
+    for i, s in ipairs(quickSaves) do
+        if s == snap then S.activeSaveIdx = i; break end
+    end
+
     S.phase = "selected"
     spawnPreview()
     placeHitParts(S.bCenter + S.off)
@@ -1276,7 +1282,7 @@ end
 local function resetTool()
     if S.ghostFolder then S.ghostFolder:Destroy(); S.ghostFolder = nil end
     S.phase="idle"; S.bricks={}; S.rawOff=Vector3.zero; S.off=Vector3.zero
-    S.axis=nil; S.dragOrig=nil; S.hovAxis=nil; S.selectMode=false; S.hovBrickIdx=nil
+    S.axis=nil; S.dragOrig=nil; S.hovAxis=nil; S.selectMode=false; S.hovBrickIdx=nil; S.activeSaveIdx=nil
     showRect(false); setHitPartsActive(false); clearPreview()
     SelModeGui.Enabled = false
 end
@@ -1288,6 +1294,11 @@ local function confirmPlace()
         overlapFlashUntil = tick() + 0.5
         notify("Clone Tool", "⚠ Can't place — selection overlaps existing bricks!", 3)
         return
+    end
+
+    if S.activeSaveIdx then
+        table.remove(quickSaves, S.activeSaveIdx)
+        S.activeSaveIdx = nil
     end
 
     saveSnapshot()
